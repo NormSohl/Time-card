@@ -33,22 +33,16 @@
     <input type="datetime-local" id="startTime" required>
   </div>
   <div>
+    <label for="endTime">End time</label>
+    <input type="datetime-local" id="endTime" required>
+  </div>
+  <div>
     <label for="mileageStart">Start mileage</label>
     <input type="number" step="0.1" id="mileageStart" placeholder="e.g. 42318">
   </div>
-  <div class="row">
-    <div>
-      <label for="durationHours">Duration (hours)</label>
-      <input type="number" step="1" min="0" id="durationHours" value="0">
-    </div>
-    <div>
-      <label for="durationMinutes">Duration (minutes)</label>
-      <input type="number" step="1" min="0" id="durationMinutes" value="0">
-    </div>
-  </div>
   <div>
-    <label for="milesDriven">Miles driven</label>
-    <input type="number" step="0.1" id="milesDriven" placeholder="e.g. 42.7">
+    <label for="mileageEnd">End mileage</label>
+    <input type="number" step="0.1" id="mileageEnd" placeholder="e.g. 42361">
   </div>
   <div>
     <label for="description">Comment</label>
@@ -65,19 +59,18 @@ document.getElementById('rawForm').addEventListener('submit', async (e) => {
   errorEl.hidden = true;
 
   const startTimeLocal = document.getElementById('startTime').value;
-  if (!startTimeLocal) {
-    errorEl.textContent = 'Start time is required.';
+  const endTimeLocal = document.getElementById('endTime').value;
+  if (!startTimeLocal || !endTimeLocal) {
+    errorEl.textContent = 'Start time and end time are both required.';
     errorEl.hidden = false;
     return;
   }
-  const hours = Number(document.getElementById('durationHours').value) || 0;
-  const minutes = Number(document.getElementById('durationMinutes').value) || 0;
 
   const body = {
     start_time: new Date(startTimeLocal).toISOString(),
+    end_time: new Date(endTimeLocal).toISOString(),
     mileage_start: document.getElementById('mileageStart').value,
-    duration_minutes: hours * 60 + minutes,
-    miles_driven: document.getElementById('milesDriven').value,
+    mileage_end: document.getElementById('mileageEnd').value,
     note: document.getElementById('description').value,
   };
 

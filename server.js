@@ -104,27 +104,31 @@ app.post('/api/clock-out', (req, res) => {
 });
 
 app.post('/api/entries/raw', (req, res) => {
-  const { start_time, mileage_start, duration_minutes, miles_driven, note } = req.body;
+  const { start_time, end_time, mileage_start, mileage_end, note } = req.body;
 
   const start = new Date(start_time);
   if (!start_time || Number.isNaN(start.getTime())) {
     return res.status(400).json({ error: 'invalid start_time' });
   }
-  const minutes = Number(duration_minutes);
-  if (!Number.isFinite(minutes) || minutes < 0) {
-    return res.status(400).json({ error: 'invalid duration_minutes' });
+  const end = new Date(end_time);
+  if (!end_time || Number.isNaN(end.getTime())) {
+    return res.status(400).json({ error: 'invalid end_time' });
   }
-  const end = new Date(start.getTime() + minutes * 60000);
+  if (end < start) {
+    return res.status(400).json({ error: 'end_time cannot be before start_time' });
+  }
 
   const mStart = parseMileage(mileage_start);
   if (mStart.error) return res.status(400).json({ error: `mileage_start ${mStart.error}` });
-  const driven = parseMileage(miles_driven);
-  if (driven.error) return res.status(400).json({ error: `miles_driven ${driven.error}` });
-  const mEnd = mStart.value != null && driven.value != null ? mStart.value + driven.value : null;
+  const mEnd = parseMileage(mileage_end);
+  if (mEnd.error) return res.status(400).json({ error: `mileage_end ${mEnd.error}` });
+  if (mStart.value != null && mEnd.value != null && mEnd.value < mStart.value) {
+    return res.status(400).json({ error: 'mileage_end cannot be less than mileage_start' });
+  }
 
   const info = db
     .prepare('INSERT INTO entries (clock_in, clock_out, note, mileage_start, mileage_end) VALUES (?, ?, ?, ?, ?)')
-    .run(start.toISOString(), end.toISOString(), note || null, mStart.value, mEnd);
+    .run(start.toISOString(), end.toISOString(), note || null, mStart.value, mEnd.value);
   res.json({ id: info.lastInsertRowid });
 });
 
