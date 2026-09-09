@@ -56,7 +56,7 @@
   <div class="fields" id="clockOutFields" hidden>
     <div>
       <label for="mileageEnd">Mileage end</label>
-      <input type="number" step="0.1" id="mileageEnd" placeholder="e.g. 42361">
+      <input type="text" inputmode="numeric" id="mileageEnd" placeholder="e.g. 42361">
     </div>
   </div>
   <button id="toggleBtn" disabled>…</button>
@@ -93,6 +93,12 @@ function escapeHtml(s) {
   return (s || '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 }
 
+function mileageEndPrefill(start) {
+  if (start == null) return '';
+  const str = String(Math.trunc(start));
+  return str.length > 2 ? str.slice(0, -2) + 'xx' : 'xx';
+}
+
 function mileageRange(start, end) {
   if (start == null && end == null) return '—';
   if (start != null && end != null) return `${start} → ${end} (${(end - start).toFixed(1)})`;
@@ -113,6 +119,7 @@ async function refresh() {
     inFields.hidden = true;
     outFields.hidden = false;
     document.getElementById('description').value = open.note || '';
+    document.getElementById('mileageEnd').value = mileageEndPrefill(open.mileage_start);
   } else {
     label.textContent = 'Hello, Judy! You are not clocked in.';
     btn.textContent = 'Clock in';
@@ -130,11 +137,21 @@ async function refresh() {
   ).join('');
 }
 
+document.getElementById('mileageEnd').addEventListener('focus', (e) => {
+  const v = e.target.value;
+  const xIndex = v.toLowerCase().indexOf('xx');
+  if (xIndex !== -1) e.target.setSelectionRange(xIndex, xIndex + 2);
+});
+
 document.getElementById('toggleBtn').addEventListener('click', async () => {
   const { open } = await api('/api/status');
   const note = document.getElementById('description').value;
   if (open) {
     const mileage_end = document.getElementById('mileageEnd').value;
+    if (/x/i.test(mileage_end)) {
+      alert('Replace the xx in mileage end with the actual last two digits.');
+      return;
+    }
     await api('/api/clock-out', { method: 'POST', body: JSON.stringify({ mileage_end, note }) });
     document.getElementById('mileageEnd').value = '';
   } else {
