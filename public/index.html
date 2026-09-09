@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Time Card</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; background: #f5f5f5; }
+  @media (prefers-color-scheme: dark) { body { background: #1a1a1a; color: #eee; } table { color: #eee; } th { border-color: #333 !important; } td { border-color: #2a2a2a !important; } }
+  header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
+  h1 { font-size: 1.3rem; margin: 0; }
+  #status { background: canvas; border-radius: 10px; padding: 1.5rem; text-align: center; margin-bottom: 1.5rem; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+  #clockLabel { font-size: 1.1rem; margin-bottom: 1rem; }
+  button { padding: 0.7rem 1.5rem; font-size: 1rem; border-radius: 8px; border: none; cursor: pointer; }
+  #toggleBtn.in { background: #dc2626; color: white; }
+  #toggleBtn.out { background: #16a34a; color: white; }
+  a.export, button.logout { font-size: 0.85rem; color: inherit; text-decoration: none; opacity: 0.7; background: none; border: none; cursor: pointer; padding: 0; }
+  table { width: 100%; border-collapse: collapse; background: canvas; border-radius: 10px; overflow: hidden; }
+  th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid #eee; font-size: 0.9rem; }
+  th { font-weight: 600; }
+  .actions { display: flex; gap: 1rem; margin-top: 1rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Time Card</h1>
+  <div class="actions">
+    <a class="export" href="/api/export.csv">Export CSV</a>
+    <form method="POST" action="/logout"><button class="logout" type="submit">Log out</button></form>
+  </div>
+</header>
+
+<div id="status">
+  <div id="clockLabel">Loading…</div>
+  <button id="toggleBtn" disabled>…</button>
+</div>
+
+<table>
+  <thead><tr><th>Clock in</th><th>Clock out</th><th>Duration</th></tr></thead>
+  <tbody id="entries"></tbody>
+</table>
+
+<script>
+async function api(path, opts) {
+  const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
+  if (res.status === 401) { location.href = '/login'; throw new Error('unauthenticated'); }
+  return res.json();
+}
+
+function fmt(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString();
+}
+
+function duration(start, end) {
+  if (!end) return '—';
+  const ms = new Date(end) - new Date(start);
+  const h = Math.floor(ms / 3600000);
+  const m = Math.round((ms % 3600000) / 60000);
+  return h + 'h ' + m + 'm';
+}
+
+async function refresh() {
+  const { open } = await api('/api/status');
+  const btn = document.getElementById('toggleBtn');
+  const label = document.getElementById('clockLabel');
+  btn.disabled = false;
+  if (open) {
+    label.textContent = 'Clocked in since ' + fmt(open.clock_in);
+    btn.textContent = 'Clock out';
+    btn.className = 'in';
+  } else {
+    label.textContent = 'Not clocked in';
+    btn.textContent = 'Clock in';
+    btn.className = 'out';
+  }
+
+  const entries = await api('/api/entries');
+  const tbody = document.getElementById('entries');
+  tbody.innerHTML = entries.map(e =>
+    `<tr><td>${fmt(e.clock_in)}</td><td>${fmt(e.clock_out)}</td><td>${duration(e.clock_in, e.clock_out)}</td></tr>`
+  ).join('');
+}
+
+document.getElementById('toggleBtn').addEventListener('click', async () => {
+  const { open } = await api('/api/status');
+  await api(open ? '/api/clock-out' : '/api/clock-in', { method: 'POST', body: JSON.stringify({}) });
+  refresh();
+});
+
+refresh();
+</script>
+</body>
+</html>

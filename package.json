@@ -1,0 +1,15 @@
+{
+  "name": "time-card",
+  "version": "1.0.0",
+  "description": "Simple self-hosted clock in/out time tracker",
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.3.0",
+    "cookie-session": "^2.1.0",
+    "express": "^4.21.0"
+  }
+}
