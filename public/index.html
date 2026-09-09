@@ -22,6 +22,7 @@
   td.desc { white-space: pre-wrap; max-width: 22rem; }
   .actions { display: flex; gap: 1rem; margin-top: 1rem; }
   .fields { display: flex; flex-direction: column; gap: 0.6rem; margin-bottom: 1rem; text-align: left; }
+  .fields[hidden] { display: none; }
   .fields label { font-size: 0.8rem; opacity: 0.75; display: block; margin-bottom: 0.2rem; }
   .fields input[type="number"] { width: 100%; padding: 0.5rem; font-size: 0.95rem; border-radius: 6px; border: 1px solid #ccc; box-sizing: border-box; }
   .fields textarea { width: 100%; padding: 0.5rem; font-size: 0.95rem; border-radius: 6px; border: 1px solid #ccc; box-sizing: border-box; font-family: inherit; resize: vertical; min-height: 4.5rem; }
@@ -65,6 +66,8 @@
   <thead><tr><th>Clock in</th><th>Clock out</th><th>Duration</th><th>Mileage</th><th>Description</th></tr></thead>
   <tbody id="entries"></tbody>
 </table>
+
+<div id="version" style="text-align:center; font-size:0.75rem; opacity:0.4; margin-top:1.5rem;"></div>
 
 <script>
 async function api(path, opts) {
@@ -140,6 +143,10 @@ document.getElementById('toggleBtn').addEventListener('click', async () => {
     document.getElementById('mileageStart').value = '';
   }
   refresh();
+});
+
+api('/api/version').then(({ sha }) => {
+  document.getElementById('version').textContent = 'build ' + sha;
 });
 
 refresh();

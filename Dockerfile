@@ -6,6 +6,8 @@ RUN npm install --omit=dev
 
 FROM node:20-alpine
 WORKDIR /app
+ARG GIT_SHA=dev
+ENV GIT_SHA=$GIT_SHA
 COPY --from=build /app/node_modules ./node_modules
 COPY package.json ./
 COPY server.js db.js ./

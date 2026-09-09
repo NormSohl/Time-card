@@ -54,6 +54,10 @@ app.use((req, res, next) => {
 });
 app.use(express.static(path.join(__dirname, 'public'), { etag: false, lastModified: false, cacheControl: false }));
 
+app.get('/api/version', (req, res) => {
+  res.json({ sha: (process.env.GIT_SHA || 'dev').slice(0, 7) });
+});
+
 app.get('/api/status', (req, res) => {
   const open = db.prepare('SELECT * FROM entries WHERE clock_out IS NULL ORDER BY id DESC LIMIT 1').get();
   res.json({ open: open || null });
