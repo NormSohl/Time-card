@@ -77,8 +77,15 @@ app.post('/api/clock-in', (req, res) => {
 app.post('/api/clock-out', (req, res) => {
   const open = db.prepare('SELECT * FROM entries WHERE clock_out IS NULL ORDER BY id DESC LIMIT 1').get();
   if (!open) return res.status(409).json({ error: 'not clocked in' });
+  if (/x/i.test(req.body.mileage_end || '')) {
+    return res.status(400).json({ error: 'mileage_end still has placeholder x characters' });
+  }
   const now = new Date().toISOString();
-  const mileageEnd = req.body.mileage_end !== undefined && req.body.mileage_end !== '' ? Number(req.body.mileage_end) : null;
+  const mileageEndRaw = req.body.mileage_end !== undefined && req.body.mileage_end !== '' ? Number(req.body.mileage_end) : null;
+  if (mileageEndRaw !== null && Number.isNaN(mileageEndRaw)) {
+    return res.status(400).json({ error: 'invalid mileage_end' });
+  }
+  const mileageEnd = mileageEndRaw;
   const note = req.body.note !== undefined ? req.body.note || null : open.note;
   db.prepare('UPDATE entries SET clock_out = ?, mileage_end = ?, note = ? WHERE id = ?').run(now, mileageEnd, note, open.id);
   res.json({ id: open.id, clock_out: now });
