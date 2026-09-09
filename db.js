@@ -13,8 +13,20 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     clock_in TEXT NOT NULL,
     clock_out TEXT,
-    note TEXT
+    note TEXT,
+    mileage_start REAL,
+    mileage_end REAL
   )
 `);
+
+const existingColumns = new Set(db.prepare('PRAGMA table_info(entries)').all().map((c) => c.name));
+for (const [column, type] of [
+  ['mileage_start', 'REAL'],
+  ['mileage_end', 'REAL'],
+]) {
+  if (!existingColumns.has(column)) {
+    db.exec(`ALTER TABLE entries ADD COLUMN ${column} ${type}`);
+  }
+}
 
 module.exports = db;

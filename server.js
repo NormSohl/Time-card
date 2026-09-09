@@ -59,7 +59,10 @@ app.post('/api/clock-in', (req, res) => {
   const open = db.prepare('SELECT * FROM entries WHERE clock_out IS NULL').get();
   if (open) return res.status(409).json({ error: 'already clocked in' });
   const now = new Date().toISOString();
-  const info = db.prepare('INSERT INTO entries (clock_in, note) VALUES (?, ?)').run(now, req.body.note || null);
+  const mileageStart = req.body.mileage_start !== undefined && req.body.mileage_start !== '' ? Number(req.body.mileage_start) : null;
+  const info = db
+    .prepare('INSERT INTO entries (clock_in, note, mileage_start) VALUES (?, ?, ?)')
+    .run(now, req.body.note || null, mileageStart);
   res.json({ id: info.lastInsertRowid, clock_in: now });
 });
 
@@ -67,7 +70,13 @@ app.post('/api/clock-out', (req, res) => {
   const open = db.prepare('SELECT * FROM entries WHERE clock_out IS NULL ORDER BY id DESC LIMIT 1').get();
   if (!open) return res.status(409).json({ error: 'not clocked in' });
   const now = new Date().toISOString();
-  db.prepare('UPDATE entries SET clock_out = ? WHERE id = ?').run(now, open.id);
+  const mileageEnd = req.body.mileage_end !== undefined && req.body.mileage_end !== '' ? Number(req.body.mileage_end) : null;
+  db.prepare('UPDATE entries SET clock_out = ?, note = ?, mileage_end = ? WHERE id = ?').run(
+    now,
+    req.body.note !== undefined ? req.body.note || null : open.note,
+    mileageEnd,
+    open.id
+  );
   res.json({ id: open.id, clock_out: now });
 });
 
@@ -83,10 +92,12 @@ app.delete('/api/entries/:id', (req, res) => {
 
 app.get('/api/export.csv', (req, res) => {
   const rows = db.prepare('SELECT * FROM entries ORDER BY id ASC').all();
-  const lines = ['id,clock_in,clock_out,note'];
+  const lines = ['id,clock_in,clock_out,mileage_start,mileage_end,description'];
   for (const r of rows) {
     const note = (r.note || '').replace(/"/g, '""');
-    lines.push(`${r.id},${r.clock_in},${r.clock_out || ''},"${note}"`);
+    lines.push(
+      `${r.id},${r.clock_in},${r.clock_out || ''},${r.mileage_start ?? ''},${r.mileage_end ?? ''},"${note}"`
+    );
   }
   res.setHeader('Content-Type', 'text/csv');
   res.setHeader('Content-Disposition', 'attachment; filename="timecard-export.csv"');

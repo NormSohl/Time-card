@@ -17,9 +17,15 @@
   #toggleBtn.out { background: #16a34a; color: white; }
   a.export, button.logout { font-size: 0.85rem; color: inherit; text-decoration: none; opacity: 0.7; background: none; border: none; cursor: pointer; padding: 0; }
   table { width: 100%; border-collapse: collapse; background: canvas; border-radius: 10px; overflow: hidden; }
-  th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid #eee; font-size: 0.9rem; }
+  th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid #eee; font-size: 0.9rem; vertical-align: top; }
   th { font-weight: 600; }
+  td.desc { white-space: pre-wrap; max-width: 22rem; }
   .actions { display: flex; gap: 1rem; margin-top: 1rem; }
+  .fields { display: flex; flex-direction: column; gap: 0.6rem; margin-bottom: 1rem; text-align: left; }
+  .fields label { font-size: 0.8rem; opacity: 0.75; display: block; margin-bottom: 0.2rem; }
+  .fields input[type="number"] { width: 100%; padding: 0.5rem; font-size: 0.95rem; border-radius: 6px; border: 1px solid #ccc; box-sizing: border-box; }
+  .fields textarea { width: 100%; padding: 0.5rem; font-size: 0.95rem; border-radius: 6px; border: 1px solid #ccc; box-sizing: border-box; font-family: inherit; resize: vertical; min-height: 4.5rem; }
+  @media (prefers-color-scheme: dark) { .fields input, .fields textarea { background: #2a2a2a; color: #eee; border-color: #444; } }
 </style>
 </head>
 <body>
@@ -33,11 +39,27 @@
 
 <div id="status">
   <div id="clockLabel">Loading…</div>
+  <div class="fields" id="clockInFields" hidden>
+    <div>
+      <label for="mileageStart">Mileage start</label>
+      <input type="number" step="0.1" id="mileageStart" placeholder="e.g. 42318">
+    </div>
+  </div>
+  <div class="fields" id="clockOutFields" hidden>
+    <div>
+      <label for="mileageEnd">Mileage end</label>
+      <input type="number" step="0.1" id="mileageEnd" placeholder="e.g. 42361">
+    </div>
+    <div>
+      <label for="description">Description</label>
+      <textarea id="description" placeholder="What did you do?"></textarea>
+    </div>
+  </div>
   <button id="toggleBtn" disabled>…</button>
 </div>
 
 <table>
-  <thead><tr><th>Clock in</th><th>Clock out</th><th>Duration</th></tr></thead>
+  <thead><tr><th>Clock in</th><th>Clock out</th><th>Duration</th><th>Mileage</th><th>Description</th></tr></thead>
   <tbody id="entries"></tbody>
 </table>
 
@@ -61,31 +83,58 @@ function duration(start, end) {
   return h + 'h ' + m + 'm';
 }
 
+function escapeHtml(s) {
+  return (s || '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+}
+
+function mileageRange(start, end) {
+  if (start == null && end == null) return '—';
+  if (start != null && end != null) return `${start} → ${end} (${(end - start).toFixed(1)})`;
+  return start != null ? `${start} →` : `→ ${end}`;
+}
+
 async function refresh() {
   const { open } = await api('/api/status');
   const btn = document.getElementById('toggleBtn');
   const label = document.getElementById('clockLabel');
+  const inFields = document.getElementById('clockInFields');
+  const outFields = document.getElementById('clockOutFields');
   btn.disabled = false;
   if (open) {
     label.textContent = 'Clocked in since ' + fmt(open.clock_in);
     btn.textContent = 'Clock out';
     btn.className = 'in';
+    inFields.hidden = true;
+    outFields.hidden = false;
   } else {
     label.textContent = 'Not clocked in';
     btn.textContent = 'Clock in';
     btn.className = 'out';
+    inFields.hidden = false;
+    outFields.hidden = true;
   }
 
   const entries = await api('/api/entries');
   const tbody = document.getElementById('entries');
   tbody.innerHTML = entries.map(e =>
-    `<tr><td>${fmt(e.clock_in)}</td><td>${fmt(e.clock_out)}</td><td>${duration(e.clock_in, e.clock_out)}</td></tr>`
+    `<tr><td>${fmt(e.clock_in)}</td><td>${fmt(e.clock_out)}</td><td>${duration(e.clock_in, e.clock_out)}</td>` +
+    `<td>${mileageRange(e.mileage_start, e.mileage_end)}</td><td class="desc">${escapeHtml(e.note)}</td></tr>`
   ).join('');
 }
 
 document.getElementById('toggleBtn').addEventListener('click', async () => {
   const { open } = await api('/api/status');
-  await api(open ? '/api/clock-out' : '/api/clock-in', { method: 'POST', body: JSON.stringify({}) });
+  if (open) {
+    const mileage_end = document.getElementById('mileageEnd').value;
+    const note = document.getElementById('description').value;
+    await api('/api/clock-out', { method: 'POST', body: JSON.stringify({ mileage_end, note }) });
+    document.getElementById('mileageEnd').value = '';
+    document.getElementById('description').value = '';
+  } else {
+    const mileage_start = document.getElementById('mileageStart').value;
+    await api('/api/clock-in', { method: 'POST', body: JSON.stringify({ mileage_start }) });
+    document.getElementById('mileageStart').value = '';
+  }
   refresh();
 });
 
