@@ -27,3 +27,5 @@ Built and published to `ghcr.io/normsohl/time-card` by
 `.github/workflows/publish.yml` on every push to `main`. Deployed on
 sohl-server alongside sohl.com and euphonia.us — see that repo's README
 for the shared Caddy/compose pattern.
+
+<!-- deploy pipeline test 2026-09-09T05:34:38Z -->
