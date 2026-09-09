@@ -71,13 +71,18 @@ app.post('/api/clock-out', (req, res) => {
   if (!open) return res.status(409).json({ error: 'not clocked in' });
   const now = new Date().toISOString();
   const mileageEnd = req.body.mileage_end !== undefined && req.body.mileage_end !== '' ? Number(req.body.mileage_end) : null;
-  db.prepare('UPDATE entries SET clock_out = ?, note = ?, mileage_end = ? WHERE id = ?').run(
-    now,
-    req.body.note !== undefined ? req.body.note || null : open.note,
-    mileageEnd,
-    open.id
-  );
+  db.prepare('UPDATE entries SET clock_out = ?, mileage_end = ? WHERE id = ?').run(now, mileageEnd, open.id);
   res.json({ id: open.id, clock_out: now });
+});
+
+// Comment can be added/edited any time while clocked in; the open entry
+// (clock_out IS NULL) is the only one this can touch, so it's locked the
+// moment clock-out runs.
+app.post('/api/note', (req, res) => {
+  const open = db.prepare('SELECT * FROM entries WHERE clock_out IS NULL ORDER BY id DESC LIMIT 1').get();
+  if (!open) return res.status(409).json({ error: 'not clocked in' });
+  db.prepare('UPDATE entries SET note = ? WHERE id = ?').run(req.body.note || null, open.id);
+  res.json({ id: open.id, note: req.body.note || null });
 });
 
 app.get('/api/entries', (req, res) => {

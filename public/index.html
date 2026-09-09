@@ -45,14 +45,20 @@
       <input type="number" step="0.1" id="mileageStart" placeholder="e.g. 42318">
     </div>
   </div>
+  <div class="fields" id="commentFields" hidden>
+    <div>
+      <label for="description">Comment</label>
+      <textarea id="description" placeholder="What are you doing?"></textarea>
+      <div style="display:flex; align-items:center; gap:0.5rem; margin-top:0.3rem;">
+        <button id="saveNoteBtn" type="button" style="padding:0.4rem 0.9rem; font-size:0.85rem; background:#2563eb; color:white;">Save comment</button>
+        <span id="noteSaved" style="font-size:0.8rem; opacity:0.6;"></span>
+      </div>
+    </div>
+  </div>
   <div class="fields" id="clockOutFields" hidden>
     <div>
       <label for="mileageEnd">Mileage end</label>
       <input type="number" step="0.1" id="mileageEnd" placeholder="e.g. 42361">
-    </div>
-    <div>
-      <label for="description">Description</label>
-      <textarea id="description" placeholder="What did you do?"></textarea>
     </div>
   </div>
   <button id="toggleBtn" disabled>…</button>
@@ -99,6 +105,7 @@ async function refresh() {
   const label = document.getElementById('clockLabel');
   const inFields = document.getElementById('clockInFields');
   const outFields = document.getElementById('clockOutFields');
+  const commentFields = document.getElementById('commentFields');
   btn.disabled = false;
   if (open) {
     label.textContent = 'Clocked in since ' + fmt(open.clock_in);
@@ -106,12 +113,15 @@ async function refresh() {
     btn.className = 'in';
     inFields.hidden = true;
     outFields.hidden = false;
+    commentFields.hidden = false;
+    document.getElementById('description').value = open.note || '';
   } else {
     label.textContent = 'Not clocked in';
     btn.textContent = 'Clock in';
     btn.className = 'out';
     inFields.hidden = false;
     outFields.hidden = true;
+    commentFields.hidden = true;
   }
 
   const entries = await api('/api/entries');
@@ -126,16 +136,22 @@ document.getElementById('toggleBtn').addEventListener('click', async () => {
   const { open } = await api('/api/status');
   if (open) {
     const mileage_end = document.getElementById('mileageEnd').value;
-    const note = document.getElementById('description').value;
-    await api('/api/clock-out', { method: 'POST', body: JSON.stringify({ mileage_end, note }) });
+    await api('/api/clock-out', { method: 'POST', body: JSON.stringify({ mileage_end }) });
     document.getElementById('mileageEnd').value = '';
-    document.getElementById('description').value = '';
   } else {
     const mileage_start = document.getElementById('mileageStart').value;
     await api('/api/clock-in', { method: 'POST', body: JSON.stringify({ mileage_start }) });
     document.getElementById('mileageStart').value = '';
   }
   refresh();
+});
+
+document.getElementById('saveNoteBtn').addEventListener('click', async () => {
+  const note = document.getElementById('description').value;
+  await api('/api/note', { method: 'POST', body: JSON.stringify({ note }) });
+  const saved = document.getElementById('noteSaved');
+  saved.textContent = 'Saved.';
+  setTimeout(() => { saved.textContent = ''; }, 2000);
 });
 
 refresh();
