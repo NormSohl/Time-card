@@ -85,6 +85,29 @@ app.post('/api/note', (req, res) => {
   res.json({ id: open.id, note: req.body.note || null });
 });
 
+app.post('/api/entries/raw', (req, res) => {
+  const { start_time, mileage_start, duration_minutes, miles_driven, note } = req.body;
+
+  const start = new Date(start_time);
+  if (!start_time || Number.isNaN(start.getTime())) {
+    return res.status(400).json({ error: 'invalid start_time' });
+  }
+  const minutes = Number(duration_minutes);
+  if (!Number.isFinite(minutes) || minutes < 0) {
+    return res.status(400).json({ error: 'invalid duration_minutes' });
+  }
+  const end = new Date(start.getTime() + minutes * 60000);
+
+  const mStart = mileage_start !== undefined && mileage_start !== '' ? Number(mileage_start) : null;
+  const driven = miles_driven !== undefined && miles_driven !== '' ? Number(miles_driven) : null;
+  const mEnd = mStart != null && driven != null ? mStart + driven : null;
+
+  const info = db
+    .prepare('INSERT INTO entries (clock_in, clock_out, note, mileage_start, mileage_end) VALUES (?, ?, ?, ?, ?)')
+    .run(start.toISOString(), end.toISOString(), note || null, mStart, mEnd);
+  res.json({ id: info.lastInsertRowid });
+});
+
 app.get('/api/entries', (req, res) => {
   const rows = db.prepare('SELECT * FROM entries ORDER BY id DESC LIMIT 500').all();
   res.json(rows);
