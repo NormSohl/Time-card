@@ -24,6 +24,18 @@ app.use(
   })
 );
 
+// Parses an optional mileage field. Returns { value } on success (value is
+// null if the field was omitted/empty) or { error } if it's a placeholder,
+// not a number, or negative.
+function parseMileage(raw) {
+  if (raw === undefined || raw === '') return { value: null };
+  if (/x/i.test(raw)) return { error: 'still has placeholder x characters' };
+  const n = Number(raw);
+  if (Number.isNaN(n)) return { error: 'is not a valid number' };
+  if (n < 0) return { error: 'cannot be negative' };
+  return { value: n };
+}
+
 function requireAuth(req, res, next) {
   if (req.session && req.session.authenticated) return next();
   if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'unauthenticated' });
@@ -66,28 +78,28 @@ app.get('/api/status', (req, res) => {
 app.post('/api/clock-in', (req, res) => {
   const open = db.prepare('SELECT * FROM entries WHERE clock_out IS NULL').get();
   if (open) return res.status(409).json({ error: 'already clocked in' });
+  const mileageStart = parseMileage(req.body.mileage_start);
+  if (mileageStart.error) return res.status(400).json({ error: `mileage_start ${mileageStart.error}` });
   const now = new Date().toISOString();
-  const mileageStart = req.body.mileage_start !== undefined && req.body.mileage_start !== '' ? Number(req.body.mileage_start) : null;
   const info = db
     .prepare('INSERT INTO entries (clock_in, note, mileage_start) VALUES (?, ?, ?)')
-    .run(now, req.body.note || null, mileageStart);
+    .run(now, req.body.note || null, mileageStart.value);
   res.json({ id: info.lastInsertRowid, clock_in: now });
 });
 
 app.post('/api/clock-out', (req, res) => {
   const open = db.prepare('SELECT * FROM entries WHERE clock_out IS NULL ORDER BY id DESC LIMIT 1').get();
   if (!open) return res.status(409).json({ error: 'not clocked in' });
-  if (/x/i.test(req.body.mileage_end || '')) {
-    return res.status(400).json({ error: 'mileage_end still has placeholder x characters' });
-  }
+  const mileageEnd = parseMileage(req.body.mileage_end);
+  if (mileageEnd.error) return res.status(400).json({ error: `mileage_end ${mileageEnd.error}` });
   const now = new Date().toISOString();
-  const mileageEndRaw = req.body.mileage_end !== undefined && req.body.mileage_end !== '' ? Number(req.body.mileage_end) : null;
-  if (mileageEndRaw !== null && Number.isNaN(mileageEndRaw)) {
-    return res.status(400).json({ error: 'invalid mileage_end' });
-  }
-  const mileageEnd = mileageEndRaw;
   const note = req.body.note !== undefined ? req.body.note || null : open.note;
-  db.prepare('UPDATE entries SET clock_out = ?, mileage_end = ?, note = ? WHERE id = ?').run(now, mileageEnd, note, open.id);
+  db.prepare('UPDATE entries SET clock_out = ?, mileage_end = ?, note = ? WHERE id = ?').run(
+    now,
+    mileageEnd.value,
+    note,
+    open.id
+  );
   res.json({ id: open.id, clock_out: now });
 });
 
@@ -104,13 +116,15 @@ app.post('/api/entries/raw', (req, res) => {
   }
   const end = new Date(start.getTime() + minutes * 60000);
 
-  const mStart = mileage_start !== undefined && mileage_start !== '' ? Number(mileage_start) : null;
-  const driven = miles_driven !== undefined && miles_driven !== '' ? Number(miles_driven) : null;
-  const mEnd = mStart != null && driven != null ? mStart + driven : null;
+  const mStart = parseMileage(mileage_start);
+  if (mStart.error) return res.status(400).json({ error: `mileage_start ${mStart.error}` });
+  const driven = parseMileage(miles_driven);
+  if (driven.error) return res.status(400).json({ error: `miles_driven ${driven.error}` });
+  const mEnd = mStart.value != null && driven.value != null ? mStart.value + driven.value : null;
 
   const info = db
     .prepare('INSERT INTO entries (clock_in, clock_out, note, mileage_start, mileage_end) VALUES (?, ?, ?, ?, ?)')
-    .run(start.toISOString(), end.toISOString(), note || null, mStart, mEnd);
+    .run(start.toISOString(), end.toISOString(), note || null, mStart.value, mEnd);
   res.json({ id: info.lastInsertRowid });
 });
 

@@ -24,7 +24,7 @@
   .fields { display: flex; flex-direction: column; gap: 0.6rem; margin-bottom: 1rem; text-align: left; }
   .fields[hidden] { display: none; }
   .fields label { font-size: 0.8rem; opacity: 0.75; display: block; margin-bottom: 0.2rem; }
-  .fields input[type="number"] { width: 100%; padding: 0.5rem; font-size: 0.95rem; border-radius: 6px; border: 1px solid #ccc; box-sizing: border-box; }
+  .fields input { width: 100%; padding: 0.5rem; font-size: 0.95rem; border-radius: 6px; border: 1px solid #ccc; box-sizing: border-box; }
   .fields textarea { width: 100%; padding: 0.5rem; font-size: 0.95rem; border-radius: 6px; border: 1px solid #ccc; box-sizing: border-box; font-family: inherit; resize: vertical; min-height: 4.5rem; }
   @media (prefers-color-scheme: dark) { .fields input, .fields textarea { background: #2a2a2a; color: #eee; border-color: #444; } }
 </style>
@@ -152,10 +152,18 @@ document.getElementById('toggleBtn').addEventListener('click', async () => {
       alert('Replace the xx in mileage end with the actual last two digits.');
       return;
     }
+    if (mileage_end !== '' && Number(mileage_end) < 0) {
+      alert('Mileage end cannot be negative.');
+      return;
+    }
     await api('/api/clock-out', { method: 'POST', body: JSON.stringify({ mileage_end, note }) });
     document.getElementById('mileageEnd').value = '';
   } else {
     const mileage_start = document.getElementById('mileageStart').value;
+    if (mileage_start !== '' && Number(mileage_start) < 0) {
+      alert('Mileage start cannot be negative.');
+      return;
+    }
     await api('/api/clock-in', { method: 'POST', body: JSON.stringify({ mileage_start, note }) });
     document.getElementById('mileageStart').value = '';
   }
