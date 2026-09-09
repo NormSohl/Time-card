@@ -48,7 +48,11 @@ app.post('/logout', (req, res) => {
 });
 
 app.use(requireAuth);
-app.use(express.static(path.join(__dirname, 'public')));
+app.use((req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+});
+app.use(express.static(path.join(__dirname, 'public'), { etag: false, lastModified: false, cacheControl: false }));
 
 app.get('/api/status', (req, res) => {
   const open = db.prepare('SELECT * FROM entries WHERE clock_out IS NULL ORDER BY id DESC LIMIT 1').get();
