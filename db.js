@@ -19,16 +19,6 @@ db.exec(`
   )
 `);
 
-const existingColumns = new Set(db.prepare('PRAGMA table_info(entries)').all().map((c) => c.name));
-for (const [column, type] of [
-  ['mileage_start', 'REAL'],
-  ['mileage_end', 'REAL'],
-]) {
-  if (!existingColumns.has(column)) {
-    db.exec(`ALTER TABLE entries ADD COLUMN ${column} ${type}`);
-  }
-}
-
 db.exec(`
   CREATE TABLE IF NOT EXISTS expenses (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -38,5 +28,36 @@ db.exec(`
     note TEXT
   )
 `);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS billings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cycle_start TEXT NOT NULL,
+    cycle_end TEXT NOT NULL,
+    generated_at TEXT NOT NULL,
+    total_hours_ms INTEGER NOT NULL,
+    total_mileage REAL NOT NULL,
+    total_expense REAL NOT NULL,
+    content TEXT NOT NULL
+  )
+`);
+
+// Adds any columns from `columns` that are missing on `table` (schema
+// migrations for databases created before that column existed).
+function addMissingColumns(table, columns) {
+  const existing = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name));
+  for (const [column, type] of columns) {
+    if (!existing.has(column)) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+    }
+  }
+}
+
+addMissingColumns('entries', [
+  ['mileage_start', 'REAL'],
+  ['mileage_end', 'REAL'],
+  ['billing_id', 'INTEGER'],
+]);
+addMissingColumns('expenses', [['billing_id', 'INTEGER']]);
 
 module.exports = db;

@@ -48,6 +48,164 @@ function parseAmount(raw) {
   return { value: n };
 }
 
+// ---- Billing helpers ----
+// Billing cycles are 14-day windows ending on a Saturday. Each cycle's
+// start is the day after the previous billing's end, so cycles chain
+// automatically once the first one is generated.
+
+function toDateOnly(d) {
+  return d.toISOString().slice(0, 10);
+}
+
+function mostRecentSaturday(d) {
+  const day = d.getUTCDay(); // 0=Sun..6=Sat
+  const diff = (day - 6 + 7) % 7;
+  const result = new Date(d);
+  result.setUTCDate(result.getUTCDate() - diff);
+  return result;
+}
+
+function addDays(dateOnly, n) {
+  const d = new Date(`${dateOnly}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return toDateOnly(d);
+}
+
+function isDateOnly(s) {
+  return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(new Date(s).getTime());
+}
+
+// Suggests the next cycle's start/end: end is the most recent Saturday,
+// start continues from the last billing (or the earliest outstanding
+// item, if this is the very first bill).
+function suggestBillingRange() {
+  const lastBilling = db.prepare('SELECT cycle_end FROM billings ORDER BY cycle_end DESC LIMIT 1').get();
+  if (lastBilling) {
+    // Cycles are always 14 days, so the next one ends exactly 14 days
+    // after the last — that's guaranteed to land on a Saturday too.
+    // (Not clamped to "today": if the next cycle hasn't finished yet,
+    // the suggestion still shows the upcoming boundary; generating
+    // early just yields whatever's outstanding so far.)
+    return { cycle_start: addDays(lastBilling.cycle_end, 1), cycle_end: addDays(lastBilling.cycle_end, 14) };
+  }
+  const suggestedEnd = toDateOnly(mostRecentSaturday(new Date()));
+  const earliestEntry = db
+    .prepare("SELECT MIN(substr(clock_out, 1, 10)) AS d FROM entries WHERE clock_out IS NOT NULL AND billing_id IS NULL")
+    .get().d;
+  const earliestExpense = db.prepare('SELECT MIN(substr(date, 1, 10)) AS d FROM expenses WHERE billing_id IS NULL').get().d;
+  const candidates = [earliestEntry, earliestExpense].filter(Boolean);
+  const cycle_start = candidates.length ? candidates.sort()[0] : addDays(suggestedEnd, -13);
+  return { cycle_start, cycle_end: suggestedEnd };
+}
+
+function gatherBillableItems(cycleStart, cycleEnd) {
+  const entries = db
+    .prepare(
+      `SELECT * FROM entries
+       WHERE clock_out IS NOT NULL AND billing_id IS NULL
+         AND substr(clock_out, 1, 10) >= ? AND substr(clock_out, 1, 10) <= ?
+       ORDER BY clock_in ASC`
+    )
+    .all(cycleStart, cycleEnd);
+  const expenses = db
+    .prepare(
+      `SELECT * FROM expenses
+       WHERE billing_id IS NULL
+         AND substr(date, 1, 10) >= ? AND substr(date, 1, 10) <= ?
+       ORDER BY date ASC`
+    )
+    .all(cycleStart, cycleEnd);
+  return { entries, expenses };
+}
+
+function formatHoursMinutes(ms) {
+  const h = Math.floor(ms / 3600000);
+  const m = Math.round((ms % 3600000) / 60000);
+  return `${h}h ${m}m`;
+}
+
+function computeTotals(entries, expenses) {
+  let totalMs = 0;
+  let totalMileage = 0;
+  for (const e of entries) {
+    totalMs += new Date(e.clock_out) - new Date(e.clock_in);
+    if (e.mileage_start != null && e.mileage_end != null) totalMileage += e.mileage_end - e.mileage_start;
+  }
+  const totalExpense = expenses.reduce((sum, x) => sum + x.amount, 0);
+  return { totalMs, totalMileage, totalExpense };
+}
+
+function padRight(s, len) {
+  s = String(s);
+  return s.length >= len ? s : s + ' '.repeat(len - s.length);
+}
+function fmtMoney(n) {
+  return '$' + n.toFixed(2);
+}
+function fmtTime(iso) {
+  const d = new Date(iso);
+  const pad2 = (n) => String(n).padStart(2, '0');
+  return `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
+}
+
+const EXPENSE_LABELS = { toll: 'Toll', parking: 'Parking', bus: 'Bus fare', other: 'Other' };
+
+function formatBillText(cycleStart, cycleEnd, entries, expenses) {
+  const { totalMs, totalMileage, totalExpense } = computeTotals(entries, expenses);
+  const rule = '-'.repeat(70);
+  const lines = [];
+  lines.push('TIME CARD BILLING STATEMENT');
+  lines.push(`Cycle: ${cycleStart} to ${cycleEnd}`);
+  lines.push(`Generated: ${new Date().toISOString()}`);
+  lines.push('');
+
+  lines.push('TIME ENTRIES');
+  lines.push(rule);
+  lines.push(
+    padRight('Date', 12) + padRight('In', 7) + padRight('Out', 7) + padRight('Hours', 9) +
+      padRight('Mileage', 18) + 'Description'
+  );
+  for (const e of entries) {
+    const dateStr = e.clock_in.slice(0, 10);
+    const hours = formatHoursMinutes(new Date(e.clock_out) - new Date(e.clock_in));
+    const mileage =
+      e.mileage_start != null && e.mileage_end != null
+        ? `${e.mileage_start} -> ${e.mileage_end}`
+        : '';
+    lines.push(
+      padRight(dateStr, 12) + padRight(fmtTime(e.clock_in), 7) + padRight(fmtTime(e.clock_out), 7) +
+        padRight(hours, 9) + padRight(mileage, 18) + (e.note || '')
+    );
+  }
+  if (!entries.length) lines.push('(none)');
+  lines.push(rule);
+  lines.push(`SUBTOTAL — Hours worked: ${formatHoursMinutes(totalMs)}`);
+  if (totalMileage) lines.push(`SUBTOTAL — Mileage: ${totalMileage.toFixed(1)} mi`);
+  lines.push('');
+
+  lines.push('EXPENSES');
+  lines.push(rule);
+  lines.push(padRight('Date', 12) + padRight('Category', 12) + padRight('Amount', 10) + 'Note');
+  for (const x of expenses) {
+    lines.push(
+      padRight(x.date.slice(0, 10), 12) + padRight(EXPENSE_LABELS[x.category] || x.category, 12) +
+        padRight(fmtMoney(x.amount), 10) + (x.note || '')
+    );
+  }
+  if (!expenses.length) lines.push('(none)');
+  lines.push(rule);
+  lines.push(`SUBTOTAL — Expenses: ${fmtMoney(totalExpense)}`);
+  lines.push('');
+
+  lines.push('='.repeat(70));
+  lines.push(`TOTAL HOURS:    ${formatHoursMinutes(totalMs)}`);
+  lines.push(`TOTAL EXPENSES: ${fmtMoney(totalExpense)}`);
+  lines.push('='.repeat(70));
+
+  return lines.join('\n') + '\n';
+}
+// ---- End billing helpers ----
+
 function requireAuth(req, res, next) {
   if (req.session && req.session.authenticated) return next();
   if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'unauthenticated' });
@@ -158,6 +316,9 @@ app.get('/api/entries/:id', (req, res) => {
 app.put('/api/entries/:id', (req, res) => {
   const existing = db.prepare('SELECT * FROM entries WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'not found' });
+  if (existing.billing_id != null) {
+    return res.status(409).json({ error: 'already billed; cannot edit' });
+  }
 
   const { start_time, end_time, mileage_start, mileage_end, note } = req.body;
 
@@ -188,6 +349,10 @@ app.put('/api/entries/:id', (req, res) => {
 });
 
 app.delete('/api/entries/:id', (req, res) => {
+  const existing = db.prepare('SELECT billing_id FROM entries WHERE id = ?').get(req.params.id);
+  if (existing && existing.billing_id != null) {
+    return res.status(409).json({ error: 'already billed; cannot delete' });
+  }
   db.prepare('DELETE FROM entries WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });
@@ -237,6 +402,9 @@ app.get('/api/expenses/:id', (req, res) => {
 app.put('/api/expenses/:id', (req, res) => {
   const existing = db.prepare('SELECT * FROM expenses WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'not found' });
+  if (existing.billing_id != null) {
+    return res.status(409).json({ error: 'already billed; cannot edit' });
+  }
 
   const { date, category, amount, note } = req.body;
 
@@ -261,8 +429,99 @@ app.put('/api/expenses/:id', (req, res) => {
 });
 
 app.delete('/api/expenses/:id', (req, res) => {
+  const existing = db.prepare('SELECT billing_id FROM expenses WHERE id = ?').get(req.params.id);
+  if (existing && existing.billing_id != null) {
+    return res.status(409).json({ error: 'already billed; cannot delete' });
+  }
   db.prepare('DELETE FROM expenses WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
+});
+
+app.get('/api/billing/preview', (req, res) => {
+  const suggested = suggestBillingRange();
+  const cycle_start = req.query.cycle_start || suggested.cycle_start;
+  const cycle_end = req.query.cycle_end || suggested.cycle_end;
+  if (!isDateOnly(cycle_start) || !isDateOnly(cycle_end)) {
+    return res.status(400).json({ error: 'cycle_start and cycle_end must be YYYY-MM-DD dates' });
+  }
+  if (cycle_end < cycle_start) {
+    return res.status(400).json({ error: 'cycle_end cannot be before cycle_start' });
+  }
+  const { entries, expenses } = gatherBillableItems(cycle_start, cycle_end);
+  const { totalMs, totalMileage, totalExpense } = computeTotals(entries, expenses);
+  res.json({
+    cycle_start,
+    cycle_end,
+    suggested,
+    entries,
+    expenses,
+    total_hours: formatHoursMinutes(totalMs),
+    total_mileage: totalMileage,
+    total_expense: totalExpense,
+  });
+});
+
+app.post('/api/billing/generate', (req, res) => {
+  const { cycle_start, cycle_end } = req.body;
+  if (!isDateOnly(cycle_start) || !isDateOnly(cycle_end)) {
+    return res.status(400).json({ error: 'cycle_start and cycle_end must be YYYY-MM-DD dates' });
+  }
+  if (cycle_end < cycle_start) {
+    return res.status(400).json({ error: 'cycle_end cannot be before cycle_start' });
+  }
+
+  const { entries, expenses } = gatherBillableItems(cycle_start, cycle_end);
+  if (!entries.length && !expenses.length) {
+    return res.status(400).json({ error: 'nothing outstanding in that date range' });
+  }
+
+  const { totalMs, totalMileage, totalExpense } = computeTotals(entries, expenses);
+  const content = formatBillText(cycle_start, cycle_end, entries, expenses);
+  const generatedAt = new Date().toISOString();
+
+  const commit = db.transaction(() => {
+    const info = db
+      .prepare(
+        'INSERT INTO billings (cycle_start, cycle_end, generated_at, total_hours_ms, total_mileage, total_expense, content) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      )
+      .run(cycle_start, cycle_end, generatedAt, totalMs, totalMileage, totalExpense, content);
+    const billingId = info.lastInsertRowid;
+    const markEntry = db.prepare('UPDATE entries SET billing_id = ? WHERE id = ?');
+    for (const e of entries) markEntry.run(billingId, e.id);
+    const markExpense = db.prepare('UPDATE expenses SET billing_id = ? WHERE id = ?');
+    for (const x of expenses) markExpense.run(billingId, x.id);
+    return billingId;
+  });
+
+  const id = commit();
+  res.json({
+    id,
+    cycle_start,
+    cycle_end,
+    generated_at: generatedAt,
+    entry_count: entries.length,
+    expense_count: expenses.length,
+    content,
+  });
+});
+
+app.get('/api/billing/history', (req, res) => {
+  const rows = db.prepare('SELECT id, cycle_start, cycle_end, generated_at, total_hours_ms, total_mileage, total_expense FROM billings ORDER BY cycle_end DESC, id DESC').all();
+  res.json(rows);
+});
+
+app.get('/api/billing/:id', (req, res) => {
+  const row = db.prepare('SELECT * FROM billings WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'not found' });
+  res.json(row);
+});
+
+app.get('/api/billing/:id/download', (req, res) => {
+  const row = db.prepare('SELECT * FROM billings WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'not found' });
+  res.setHeader('Content-Type', 'text/plain');
+  res.setHeader('Content-Disposition', `attachment; filename="timecard-bill-${row.cycle_start}-to-${row.cycle_end}.txt"`);
+  res.send(row.content);
 });
 
 app.get('/api/export.csv', (req, res) => {

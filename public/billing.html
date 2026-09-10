@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Time Card — Billing</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; background: #f5f5f5; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #1a1a1a; color: #eee; }
+    table { color: #eee; }
+    th, td { border-color: #2a2a2a !important; }
+    input, select { background: #2a2a2a; color: #eee; border-color: #444; }
+    pre { background: #111; color: #ddd; }
+  }
+  header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
+  h1 { font-size: 1.3rem; margin: 0; }
+  h2 { font-size: 1.05rem; margin: 1.75rem 0 0.75rem; }
+  a.back { font-size: 0.9rem; color: inherit; opacity: 0.75; }
+  .card { background: canvas; border-radius: 10px; padding: 1.5rem; box-shadow: 0 2px 12px rgba(0,0,0,0.08); margin-bottom: 1.5rem; }
+  .row { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem; }
+  .row > div { flex: 1; min-width: 10rem; }
+  label { font-size: 0.85rem; opacity: 0.75; display: block; margin-bottom: 0.3rem; }
+  input, select { width: 100%; padding: 0.55rem; font-size: 16px; border-radius: 6px; border: 1px solid #ccc; box-sizing: border-box; }
+  button {
+    padding: 0.7rem 1.5rem; font-size: 1rem; border-radius: 8px; border: none; cursor: pointer;
+    background: #2563eb; color: white; min-height: 44px;
+  }
+  button.secondary { background: #6b7280; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid #eee; font-size: 0.9rem; }
+  .totals { font-size: 0.9rem; margin-top: 0.75rem; }
+  .totals div { margin-bottom: 0.25rem; }
+  .error { color: #dc2626; font-size: 0.85rem; margin-top: 0.5rem; }
+  .empty { opacity: 0.6; font-size: 0.9rem; }
+  pre { white-space: pre-wrap; padding: 1rem; border-radius: 8px; background: #f0f0f0; font-size: 0.8rem; overflow-x: auto; }
+  a.export { font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Billing</h1>
+  <a class="back" href="/">&larr; Back</a>
+</header>
+
+<div class="card">
+  <h2 style="margin-top:0;">Generate bill</h2>
+  <div class="row">
+    <div>
+      <label for="cycleStart">Cycle start</label>
+      <input type="date" id="cycleStart">
+    </div>
+    <div>
+      <label for="cycleEnd">Cycle end</label>
+      <input type="date" id="cycleEnd">
+    </div>
+  </div>
+  <div id="previewArea">
+    <p class="empty">Loading…</p>
+  </div>
+  <div id="previewError" class="error" hidden></div>
+  <div style="margin-top:1rem; display:flex; gap:0.75rem;">
+    <button type="button" id="refreshBtn" class="secondary">Refresh preview</button>
+    <button type="button" id="generateBtn">Generate & mark as billed</button>
+  </div>
+</div>
+
+<h2>Billing history</h2>
+<table>
+  <thead><tr><th>Cycle</th><th>Generated</th><th>Hours</th><th>Expenses</th><th></th></tr></thead>
+  <tbody id="historyBody"></tbody>
+</table>
+
+<div id="viewArea"></div>
+
+<script>
+async function api(path, opts) {
+  const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
+  if (res.status === 401) { location.href = '/login'; throw new Error('unauthenticated'); }
+  return res;
+}
+
+function fmtDateTime(iso) {
+  return new Date(iso).toLocaleString();
+}
+
+async function loadPreview() {
+  const errorEl = document.getElementById('previewError');
+  errorEl.hidden = true;
+  const start = document.getElementById('cycleStart').value;
+  const end = document.getElementById('cycleEnd').value;
+  const params = new URLSearchParams();
+  if (start) params.set('cycle_start', start);
+  if (end) params.set('cycle_end', end);
+  const res = await api(`/api/billing/preview?${params}`);
+  const data = await res.json();
+  if (!res.ok) {
+    errorEl.textContent = data.error || 'Failed to load preview.';
+    errorEl.hidden = false;
+    document.getElementById('previewArea').innerHTML = '';
+    return;
+  }
+  document.getElementById('cycleStart').value = data.cycle_start;
+  document.getElementById('cycleEnd').value = data.cycle_end;
+
+  const area = document.getElementById('previewArea');
+  if (!data.entries.length && !data.expenses.length) {
+    area.innerHTML = '<p class="empty">Nothing outstanding in this range.</p>';
+    return;
+  }
+  const entryRows = data.entries.map(e =>
+    `<tr><td>${e.clock_in.slice(0,10)}</td><td>${e.note || ''}</td></tr>`
+  ).join('');
+  const expenseRows = data.expenses.map(x =>
+    `<tr><td>${x.date.slice(0,10)}</td><td>${x.category}</td><td>$${x.amount.toFixed(2)}</td></tr>`
+  ).join('');
+  area.innerHTML = `
+    <p class="empty">${data.entries.length} time entr${data.entries.length === 1 ? 'y' : 'ies'}, ${data.expenses.length} expense${data.expenses.length === 1 ? '' : 's'} will be included and marked billed.</p>
+    <div class="totals">
+      <div><strong>Hours worked:</strong> ${data.total_hours}</div>
+      <div><strong>Expenses:</strong> $${data.total_expense.toFixed(2)}</div>
+    </div>
+  `;
+}
+
+document.getElementById('refreshBtn').addEventListener('click', loadPreview);
+document.getElementById('cycleStart').addEventListener('change', loadPreview);
+document.getElementById('cycleEnd').addEventListener('change', loadPreview);
+
+document.getElementById('generateBtn').addEventListener('click', async () => {
+  const cycle_start = document.getElementById('cycleStart').value;
+  const cycle_end = document.getElementById('cycleEnd').value;
+  if (!confirm(`Generate the bill for ${cycle_start} to ${cycle_end}? This marks all included items as billed and cannot be undone.`)) return;
+  const res = await api('/api/billing/generate', {
+    method: 'POST',
+    body: JSON.stringify({ cycle_start, cycle_end }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    const errorEl = document.getElementById('previewError');
+    errorEl.textContent = data.error || 'Failed to generate.';
+    errorEl.hidden = false;
+    return;
+  }
+  await loadHistory();
+  await loadPreview();
+  viewBill(data.id, data.content, data.cycle_start, data.cycle_end);
+});
+
+function viewBill(id, content, start, end) {
+  document.getElementById('viewArea').innerHTML = `
+    <h2>Bill ${start} to ${end}</h2>
+    <a class="export" href="/api/billing/${id}/download">Download as .txt</a>
+    <pre>${content.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}</pre>
+  `;
+}
+
+async function loadHistory() {
+  const res = await api('/api/billing/history');
+  const rows = await res.json();
+  const tbody = document.getElementById('historyBody');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty">No bills generated yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(b => {
+    const h = Math.floor(b.total_hours_ms / 3600000);
+    const m = Math.round((b.total_hours_ms % 3600000) / 60000);
+    return `<tr>
+      <td>${b.cycle_start} – ${b.cycle_end}</td>
+      <td>${fmtDateTime(b.generated_at)}</td>
+      <td>${h}h ${m}m</td>
+      <td>$${b.total_expense.toFixed(2)}</td>
+      <td><a href="#" onclick="loadAndView(${b.id}); return false;">View</a> · <a href="/api/billing/${b.id}/download">Download</a></td>
+    </tr>`;
+  }).join('');
+}
+
+async function loadAndView(id) {
+  const res = await api(`/api/billing/${id}`);
+  const b = await res.json();
+  viewBill(b.id, b.content, b.cycle_start, b.cycle_end);
+}
+
+loadPreview();
+loadHistory();
+</script>
+</body>
+</html>

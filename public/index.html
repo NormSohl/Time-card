@@ -35,6 +35,7 @@
   <div class="actions">
     <a class="export" href="/raw.html">Enter raw data</a>
     <a class="export" href="/expense.html">Add expense</a>
+    <a class="export" href="/billing.html">Billing</a>
     <a class="export" href="/api/export.csv">Export CSV</a>
     <form method="POST" action="/logout"><button class="logout" type="submit">Log out</button></form>
   </div>
@@ -64,15 +65,15 @@
 </div>
 
 <table>
-  <thead><tr><th>Clock in</th><th>Clock out</th><th>Duration</th><th>Mileage</th><th>Description</th><th></th></tr></thead>
+  <thead><tr><th>Clock in</th><th>Clock out</th><th>Duration</th><th>Mileage</th><th>Description</th><th>Status</th><th></th></tr></thead>
   <tbody id="entries"></tbody>
 </table>
 
 <h2 style="font-size: 1.05rem; margin: 1.5rem 0 0.75rem;">Expenses</h2>
 <table>
-  <thead><tr><th>Date</th><th>Category</th><th>Amount</th><th>Note</th><th></th></tr></thead>
+  <thead><tr><th>Date</th><th>Category</th><th>Amount</th><th>Note</th><th>Status</th><th></th></tr></thead>
   <tbody id="expenses"></tbody>
-  <tfoot><tr><td colspan="2" style="font-weight:600;">Total</td><td id="expensesTotal" style="font-weight:600;"></td><td></td><td></td></tr></tfoot>
+  <tfoot><tr><td colspan="2" style="font-weight:600;">Total</td><td id="expensesTotal" style="font-weight:600;"></td><td></td><td></td><td></td></tr></tfoot>
 </table>
 <div style="margin-top: 0.5rem;">
   <a class="export" href="/api/expenses/export.csv">Export expenses CSV</a>
@@ -143,10 +144,15 @@ async function refresh() {
   const entries = await api('/api/entries');
   const tbody = document.getElementById('entries');
   tbody.innerHTML = entries.map(e => {
-    const editLink = e.clock_out ? `<a href="/raw.html?id=${e.id}">Edit</a> · ` : '';
+    const billed = e.billing_id != null;
+    const status = billed ? 'Billed' : (e.clock_out ? 'Outstanding' : '—');
+    const actions = billed
+      ? ''
+      : (e.clock_out ? `<a href="/raw.html?id=${e.id}">Edit</a> · ` : '') +
+        `<button type="button" onclick="deleteEntry(${e.id})" style="padding:0.2rem 0.5rem; font-size:0.8rem;">Delete</button>`;
     return `<tr><td>${fmt(e.clock_in)}</td><td>${fmt(e.clock_out)}</td><td>${duration(e.clock_in, e.clock_out)}</td>` +
       `<td>${mileageRange(e.mileage_start, e.mileage_end)}</td><td class="desc">${escapeHtml(e.note)}</td>` +
-      `<td>${editLink}<button type="button" onclick="deleteEntry(${e.id})" style="padding:0.2rem 0.5rem; font-size:0.8rem;">Delete</button></td></tr>`;
+      `<td>${status}</td><td>${actions}</td></tr>`;
   }).join('');
 
   await refreshExpenses();
@@ -178,11 +184,15 @@ async function deleteExpense(id) {
 async function refreshExpenses() {
   const expenses = await api('/api/expenses');
   const tbody = document.getElementById('expenses');
-  tbody.innerHTML = expenses.map(x =>
-    `<tr><td>${fmtDate(x.date)}</td><td>${CATEGORY_LABELS[x.category] || x.category}</td>` +
-    `<td>${fmtAmount(x.amount)}</td><td class="desc">${escapeHtml(x.note)}</td>` +
-    `<td><a href="/expense.html?id=${x.id}">Edit</a> · <button type="button" onclick="deleteExpense(${x.id})" style="padding:0.2rem 0.5rem; font-size:0.8rem;">Delete</button></td></tr>`
-  ).join('');
+  tbody.innerHTML = expenses.map(x => {
+    const billed = x.billing_id != null;
+    const actions = billed
+      ? ''
+      : `<a href="/expense.html?id=${x.id}">Edit</a> · <button type="button" onclick="deleteExpense(${x.id})" style="padding:0.2rem 0.5rem; font-size:0.8rem;">Delete</button>`;
+    return `<tr><td>${fmtDate(x.date)}</td><td>${CATEGORY_LABELS[x.category] || x.category}</td>` +
+      `<td>${fmtAmount(x.amount)}</td><td class="desc">${escapeHtml(x.note)}</td>` +
+      `<td>${billed ? 'Billed' : 'Outstanding'}</td><td>${actions}</td></tr>`;
+  }).join('');
   const total = expenses.reduce((sum, x) => sum + x.amount, 0);
   document.getElementById('expensesTotal').textContent = fmtAmount(total);
 }
