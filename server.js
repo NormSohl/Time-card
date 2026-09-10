@@ -449,6 +449,19 @@ app.get('/api/billing/preview', (req, res) => {
   }
   const { entries, expenses } = gatherBillableItems(cycle_start, cycle_end);
   const { totalMs, totalMileage, totalExpense } = computeTotals(entries, expenses);
+
+  if (req.query.format === 'text') {
+    // Draft only — same formatting as a real bill, but nothing is saved
+    // and nothing is marked billed. Useful mid-cycle, before the period
+    // is actually over.
+    const content = formatBillText(cycle_start, cycle_end, entries, expenses).replace(
+      'TIME CARD BILLING STATEMENT',
+      'TIME CARD BILLING STATEMENT (DRAFT — not yet billed)'
+    );
+    res.setHeader('Content-Type', 'text/plain');
+    return res.send(content);
+  }
+
   res.json({
     cycle_start,
     cycle_end,

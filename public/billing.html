@@ -60,10 +60,12 @@
     <p class="empty">Loading…</p>
   </div>
   <div id="previewError" class="error" hidden></div>
-  <div style="margin-top:1rem; display:flex; gap:0.75rem;">
+  <div style="margin-top:1rem; display:flex; gap:0.75rem; flex-wrap: wrap;">
     <button type="button" id="refreshBtn" class="secondary">Refresh preview</button>
+    <button type="button" id="draftBtn" class="secondary">View draft text</button>
     <button type="button" id="generateBtn">Generate & mark as billed</button>
   </div>
+  <p class="empty" style="margin-top:0.5rem;">"View draft text" shows the statement as it would look right now — nothing is saved or marked billed. Use "Generate" only once the period is actually over.</p>
 </div>
 
 <h2>Billing history</h2>
@@ -125,6 +127,26 @@ async function loadPreview() {
 }
 
 document.getElementById('refreshBtn').addEventListener('click', loadPreview);
+
+document.getElementById('draftBtn').addEventListener('click', async () => {
+  const start = document.getElementById('cycleStart').value;
+  const end = document.getElementById('cycleEnd').value;
+  const params = new URLSearchParams({ format: 'text' });
+  if (start) params.set('cycle_start', start);
+  if (end) params.set('cycle_end', end);
+  const res = await api(`/api/billing/preview?${params}`);
+  const text = await res.text();
+  if (!res.ok) {
+    const errorEl = document.getElementById('previewError');
+    errorEl.textContent = 'Failed to load draft.';
+    errorEl.hidden = false;
+    return;
+  }
+  document.getElementById('viewArea').innerHTML = `
+    <h2>Draft (not billed)</h2>
+    <pre>${text.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}</pre>
+  `;
+});
 document.getElementById('cycleStart').addEventListener('change', loadPreview);
 document.getElementById('cycleEnd').addEventListener('change', loadPreview);
 
