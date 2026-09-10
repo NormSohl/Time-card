@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Time Card — Enter Raw Data</title>
+<title id="pageTitle">Time Card — Enter Raw Data</title>
 <style>
   :root { color-scheme: light dark; }
   body { font-family: system-ui, sans-serif; max-width: 480px; margin: 2rem auto; padding: 0 1rem; background: #f5f5f5; }
@@ -17,13 +17,15 @@
   textarea { min-height: 4.5rem; resize: vertical; }
   .row { display: flex; gap: 0.75rem; }
   .row > div { flex: 1; }
-  button { padding: 0.7rem 1.5rem; font-size: 1rem; border-radius: 8px; border: none; cursor: pointer; background: #2563eb; color: white; }
+  .buttons { display: flex; gap: 0.75rem; }
+  button { flex: 1; padding: 0.7rem 1.5rem; font-size: 1rem; border-radius: 8px; border: none; cursor: pointer; background: #2563eb; color: white; }
+  button.danger { background: #dc2626; }
   .error { color: #dc2626; font-size: 0.85rem; }
 </style>
 </head>
 <body>
 <header>
-  <h1>Enter Raw Data</h1>
+  <h1 id="heading">Enter Raw Data</h1>
   <a class="back" href="/">&larr; Back</a>
 </header>
 
@@ -49,10 +51,52 @@
     <textarea id="description" placeholder="What did you do?"></textarea>
   </div>
   <div id="error" class="error" hidden></div>
-  <button type="submit">Save</button>
+  <div class="buttons">
+    <button type="button" id="deleteBtn" class="danger" hidden>Delete</button>
+    <button type="submit" id="saveBtn">Save</button>
+  </div>
 </form>
 
 <script>
+const params = new URLSearchParams(location.search);
+const entryId = params.get('id');
+
+function toLocalInputValue(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+async function loadForEdit() {
+  const res = await fetch(`/api/entries/${entryId}`);
+  if (res.status === 401) { location.href = '/login'; return; }
+  if (!res.ok) {
+    document.getElementById('error').textContent = 'Entry not found.';
+    document.getElementById('error').hidden = false;
+    return;
+  }
+  const e = await res.json();
+  document.getElementById('pageTitle').textContent = 'Time Card — Edit Entry';
+  document.getElementById('heading').textContent = 'Edit Entry';
+  document.getElementById('saveBtn').textContent = 'Save changes';
+  document.getElementById('startTime').value = toLocalInputValue(e.clock_in);
+  document.getElementById('endTime').value = toLocalInputValue(e.clock_out);
+  document.getElementById('mileageStart').value = e.mileage_start ?? '';
+  document.getElementById('mileageEnd').value = e.mileage_end ?? '';
+  document.getElementById('description').value = e.note || '';
+  document.getElementById('deleteBtn').hidden = false;
+}
+
+if (entryId) loadForEdit();
+
+document.getElementById('deleteBtn').addEventListener('click', async () => {
+  if (!confirm('Delete this entry? This cannot be undone.')) return;
+  const res = await fetch(`/api/entries/${entryId}`, { method: 'DELETE' });
+  if (res.status === 401) { location.href = '/login'; return; }
+  location.href = '/';
+});
+
 document.getElementById('rawForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const errorEl = document.getElementById('error');
@@ -74,8 +118,8 @@ document.getElementById('rawForm').addEventListener('submit', async (e) => {
     note: document.getElementById('description').value,
   };
 
-  const res = await fetch('/api/entries/raw', {
-    method: 'POST',
+  const res = await fetch(entryId ? `/api/entries/${entryId}` : '/api/entries/raw', {
+    method: entryId ? 'PUT' : 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });

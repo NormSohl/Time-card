@@ -149,6 +149,44 @@ app.get('/api/entries', (req, res) => {
   res.json(rows);
 });
 
+app.get('/api/entries/:id', (req, res) => {
+  const row = db.prepare('SELECT * FROM entries WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'not found' });
+  res.json(row);
+});
+
+app.put('/api/entries/:id', (req, res) => {
+  const existing = db.prepare('SELECT * FROM entries WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'not found' });
+
+  const { start_time, end_time, mileage_start, mileage_end, note } = req.body;
+
+  const start = new Date(start_time);
+  if (!start_time || Number.isNaN(start.getTime())) {
+    return res.status(400).json({ error: 'invalid start_time' });
+  }
+  const end = new Date(end_time);
+  if (!end_time || Number.isNaN(end.getTime())) {
+    return res.status(400).json({ error: 'invalid end_time' });
+  }
+  if (end < start) {
+    return res.status(400).json({ error: 'end_time cannot be before start_time' });
+  }
+
+  const mStart = parseMileage(mileage_start);
+  if (mStart.error) return res.status(400).json({ error: `mileage_start ${mStart.error}` });
+  const mEnd = parseMileage(mileage_end);
+  if (mEnd.error) return res.status(400).json({ error: `mileage_end ${mEnd.error}` });
+  if (mStart.value != null && mEnd.value != null && mEnd.value < mStart.value) {
+    return res.status(400).json({ error: 'mileage_end cannot be less than mileage_start' });
+  }
+
+  db.prepare(
+    'UPDATE entries SET clock_in = ?, clock_out = ?, note = ?, mileage_start = ?, mileage_end = ? WHERE id = ?'
+  ).run(start.toISOString(), end.toISOString(), note || null, mStart.value, mEnd.value, req.params.id);
+  res.json({ ok: true });
+});
+
 app.delete('/api/entries/:id', (req, res) => {
   db.prepare('DELETE FROM entries WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
