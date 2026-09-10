@@ -84,7 +84,18 @@ async function loadForEdit() {
   document.getElementById('deleteBtn').hidden = false;
 }
 
-if (expenseId) loadForEdit();
+function todayLocal() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+if (expenseId) {
+  loadForEdit();
+} else {
+  document.getElementById('date').value = todayLocal();
+  document.getElementById('category').value = 'parking';
+}
 
 document.getElementById('deleteBtn').addEventListener('click', async () => {
   if (!confirm('Delete this expense? This cannot be undone.')) return;
