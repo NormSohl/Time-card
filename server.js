@@ -36,6 +36,18 @@ function parseMileage(raw) {
   return { value: n };
 }
 
+const EXPENSE_CATEGORIES = ['toll', 'parking', 'bus', 'other'];
+
+// Validates a required expense amount. Returns { value } on success or
+// { error } if missing, not a number, or not positive.
+function parseAmount(raw) {
+  if (raw === undefined || raw === '') return { error: 'is required' };
+  const n = Number(raw);
+  if (Number.isNaN(n)) return { error: 'is not a valid number' };
+  if (n <= 0) return { error: 'must be greater than zero' };
+  return { value: n };
+}
+
 function requireAuth(req, res, next) {
   if (req.session && req.session.authenticated) return next();
   if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'unauthenticated' });
@@ -139,6 +151,79 @@ app.get('/api/entries', (req, res) => {
 
 app.delete('/api/entries/:id', (req, res) => {
   db.prepare('DELETE FROM entries WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+app.post('/api/expenses', (req, res) => {
+  const { date, category, amount, note } = req.body;
+
+  const d = new Date(date);
+  if (!date || Number.isNaN(d.getTime())) {
+    return res.status(400).json({ error: 'invalid date' });
+  }
+  if (!EXPENSE_CATEGORIES.includes(category)) {
+    return res.status(400).json({ error: `category must be one of ${EXPENSE_CATEGORIES.join(', ')}` });
+  }
+  const amt = parseAmount(amount);
+  if (amt.error) return res.status(400).json({ error: `amount ${amt.error}` });
+
+  const info = db
+    .prepare('INSERT INTO expenses (date, category, amount, note) VALUES (?, ?, ?, ?)')
+    .run(d.toISOString(), category, amt.value, note || null);
+  res.json({ id: info.lastInsertRowid });
+});
+
+app.get('/api/expenses', (req, res) => {
+  const rows = db.prepare('SELECT * FROM expenses ORDER BY date DESC, id DESC LIMIT 500').all();
+  res.json(rows);
+});
+
+app.get('/api/expenses/export.csv', (req, res) => {
+  const rows = db.prepare('SELECT * FROM expenses ORDER BY date ASC, id ASC').all();
+  const lines = ['id,date,category,amount,description'];
+  for (const r of rows) {
+    const note = (r.note || '').replace(/"/g, '""');
+    lines.push(`${r.id},${r.date},${r.category},${r.amount},"${note}"`);
+  }
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename="timecard-expenses-export.csv"');
+  res.send(lines.join('\n'));
+});
+
+app.get('/api/expenses/:id', (req, res) => {
+  const row = db.prepare('SELECT * FROM expenses WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'not found' });
+  res.json(row);
+});
+
+app.put('/api/expenses/:id', (req, res) => {
+  const existing = db.prepare('SELECT * FROM expenses WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'not found' });
+
+  const { date, category, amount, note } = req.body;
+
+  const d = new Date(date);
+  if (!date || Number.isNaN(d.getTime())) {
+    return res.status(400).json({ error: 'invalid date' });
+  }
+  if (!EXPENSE_CATEGORIES.includes(category)) {
+    return res.status(400).json({ error: `category must be one of ${EXPENSE_CATEGORIES.join(', ')}` });
+  }
+  const amt = parseAmount(amount);
+  if (amt.error) return res.status(400).json({ error: `amount ${amt.error}` });
+
+  db.prepare('UPDATE expenses SET date = ?, category = ?, amount = ?, note = ? WHERE id = ?').run(
+    d.toISOString(),
+    category,
+    amt.value,
+    note || null,
+    req.params.id
+  );
+  res.json({ ok: true });
+});
+
+app.delete('/api/expenses/:id', (req, res) => {
+  db.prepare('DELETE FROM expenses WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });
 

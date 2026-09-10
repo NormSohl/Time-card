@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title id="pageTitle">Time Card — Enter Expense</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, sans-serif; max-width: 480px; margin: 2rem auto; padding: 0 1rem; background: #f5f5f5; }
+  @media (prefers-color-scheme: dark) { body { background: #1a1a1a; color: #eee; } input, textarea, select { background: #2a2a2a; color: #eee; border-color: #444; } }
+  header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
+  h1 { font-size: 1.3rem; margin: 0; }
+  a.back { font-size: 0.85rem; color: inherit; opacity: 0.7; }
+  form { background: canvas; border-radius: 10px; padding: 1.5rem; box-shadow: 0 2px 12px rgba(0,0,0,0.08); display: flex; flex-direction: column; gap: 1rem; }
+  label { font-size: 0.85rem; opacity: 0.75; display: block; margin-bottom: 0.3rem; }
+  input, textarea, select { width: 100%; padding: 0.55rem; font-size: 0.95rem; border-radius: 6px; border: 1px solid #ccc; box-sizing: border-box; font-family: inherit; }
+  textarea { min-height: 4.5rem; resize: vertical; }
+  .buttons { display: flex; gap: 0.75rem; }
+  button { flex: 1; padding: 0.7rem 1.5rem; font-size: 1rem; border-radius: 8px; border: none; cursor: pointer; background: #2563eb; color: white; }
+  button.danger { background: #dc2626; }
+  .error { color: #dc2626; font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="heading">Enter Expense</h1>
+  <a class="back" href="/">&larr; Back</a>
+</header>
+
+<form id="expenseForm">
+  <div>
+    <label for="date">Date</label>
+    <input type="date" id="date" required>
+  </div>
+  <div>
+    <label for="category">Category</label>
+    <select id="category" required>
+      <option value="toll">Toll</option>
+      <option value="parking">Parking</option>
+      <option value="bus">Bus fare</option>
+      <option value="other">Other</option>
+    </select>
+  </div>
+  <div>
+    <label for="amount">Amount ($)</label>
+    <input type="number" step="0.01" min="0.01" id="amount" placeholder="e.g. 4.50" required>
+  </div>
+  <div>
+    <label for="description">Note</label>
+    <textarea id="description" placeholder="What was it for?"></textarea>
+  </div>
+  <div id="error" class="error" hidden></div>
+  <div class="buttons">
+    <button type="button" id="deleteBtn" class="danger" hidden>Delete</button>
+    <button type="submit" id="saveBtn">Save</button>
+  </div>
+</form>
+
+<script>
+const params = new URLSearchParams(location.search);
+const expenseId = params.get('id');
+
+function toDateInputValue(iso) {
+  if (!iso) return '';
+  return iso.slice(0, 10);
+}
+
+async function loadForEdit() {
+  const res = await fetch(`/api/expenses/${expenseId}`);
+  if (res.status === 401) { location.href = '/login'; return; }
+  if (!res.ok) {
+    document.getElementById('error').textContent = 'Expense not found.';
+    document.getElementById('error').hidden = false;
+    return;
+  }
+  const e = await res.json();
+  document.getElementById('pageTitle').textContent = 'Time Card — Edit Expense';
+  document.getElementById('heading').textContent = 'Edit Expense';
+  document.getElementById('saveBtn').textContent = 'Save changes';
+  document.getElementById('date').value = toDateInputValue(e.date);
+  document.getElementById('category').value = e.category;
+  document.getElementById('amount').value = e.amount;
+  document.getElementById('description').value = e.note || '';
+  document.getElementById('deleteBtn').hidden = false;
+}
+
+if (expenseId) loadForEdit();
+
+document.getElementById('deleteBtn').addEventListener('click', async () => {
+  if (!confirm('Delete this expense? This cannot be undone.')) return;
+  const res = await fetch(`/api/expenses/${expenseId}`, { method: 'DELETE' });
+  if (res.status === 401) { location.href = '/login'; return; }
+  location.href = '/';
+});
+
+document.getElementById('expenseForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errorEl = document.getElementById('error');
+  errorEl.hidden = true;
+
+  const date = document.getElementById('date').value;
+  if (!date) {
+    errorEl.textContent = 'Date is required.';
+    errorEl.hidden = false;
+    return;
+  }
+
+  const body = {
+    date,
+    category: document.getElementById('category').value,
+    amount: document.getElementById('amount').value,
+    note: document.getElementById('description').value,
+  };
+
+  const res = await fetch(expenseId ? `/api/expenses/${expenseId}` : '/api/expenses', {
+    method: expenseId ? 'PUT' : 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  if (res.status === 401) { location.href = '/login'; return; }
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    errorEl.textContent = data.error || 'Failed to save.';
+    errorEl.hidden = false;
+    return;
+  }
+  location.href = '/';
+});
+</script>
+</body>
+</html>

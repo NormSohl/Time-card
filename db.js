@@ -29,4 +29,14 @@ for (const [column, type] of [
   }
 }
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS expenses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL,
+    category TEXT NOT NULL,
+    amount REAL NOT NULL,
+    note TEXT
+  )
+`);
+
 module.exports = db;
