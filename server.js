@@ -537,6 +537,24 @@ app.get('/api/billing/:id/download', (req, res) => {
   res.send(row.content);
 });
 
+// Undoes a bill: deletes the billing record and un-locks the entries and
+// expenses it covered (clears their billing_id so they go back to
+// outstanding and become editable/deletable again). For fixing a mistake
+// — a wrong date range, generating too early — not for routine use.
+app.delete('/api/billing/:id', (req, res) => {
+  const row = db.prepare('SELECT id FROM billings WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'not found' });
+
+  const commit = db.transaction(() => {
+    db.prepare('UPDATE entries SET billing_id = NULL WHERE billing_id = ?').run(row.id);
+    db.prepare('UPDATE expenses SET billing_id = NULL WHERE billing_id = ?').run(row.id);
+    db.prepare('DELETE FROM billings WHERE id = ?').run(row.id);
+  });
+  commit();
+
+  res.json({ ok: true });
+});
+
 app.get('/api/export.csv', (req, res) => {
   const rows = db.prepare('SELECT * FROM entries ORDER BY id ASC').all();
   const lines = ['id,clock_in,clock_out,mileage_start,mileage_end,description'];

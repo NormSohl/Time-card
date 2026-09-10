@@ -194,7 +194,7 @@ async function loadHistory() {
       <td>${fmtDateTime(b.generated_at)}</td>
       <td>${h}h ${m}m</td>
       <td>$${b.total_expense.toFixed(2)}</td>
-      <td><a href="#" onclick="loadAndView(${b.id}); return false;">View</a> · <a href="/api/billing/${b.id}/download">Download</a></td>
+      <td><a href="#" onclick="loadAndView(${b.id}); return false;">View</a> · <a href="/api/billing/${b.id}/download">Download</a> · <a href="#" onclick="unbill(${b.id}); return false;">Unbill</a></td>
     </tr>`;
   }).join('');
 }
@@ -203,6 +203,14 @@ async function loadAndView(id) {
   const res = await api(`/api/billing/${id}`);
   const b = await res.json();
   viewBill(b.id, b.content, b.cycle_start, b.cycle_end);
+}
+
+async function unbill(id) {
+  if (!confirm('Undo this bill? It will be deleted and its entries/expenses go back to Outstanding (and become editable again). Use this only to fix a mistake.')) return;
+  await api(`/api/billing/${id}`, { method: 'DELETE' });
+  document.getElementById('viewArea').innerHTML = '';
+  await loadHistory();
+  await loadPreview();
 }
 
 loadPreview();
