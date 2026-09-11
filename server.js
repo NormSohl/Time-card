@@ -569,6 +569,10 @@ app.get('/api/export.csv', (req, res) => {
   res.send(lines.join('\n'));
 });
 
-app.listen(PORT, () => {
-  console.log(`time-card listening on port ${PORT}`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`time-card listening on port ${PORT}`);
+  });
+}
+
+module.exports = app;
