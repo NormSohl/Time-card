@@ -163,18 +163,18 @@ function formatBillText(cycleStart, cycleEnd, entries, expenses) {
   lines.push(rule);
   lines.push(
     padRight('Date', 12) + padRight('In', 7) + padRight('Out', 7) + padRight('Hours', 9) +
-      padRight('Mileage', 18) + 'Description'
+      padRight('Mileage', 26) + 'Description'
   );
   for (const e of entries) {
     const dateStr = e.clock_in.slice(0, 10);
     const hours = formatHoursMinutes(new Date(e.clock_out) - new Date(e.clock_in));
     const mileage =
       e.mileage_start != null && e.mileage_end != null
-        ? `${e.mileage_start} -> ${e.mileage_end}`
+        ? `${e.mileage_start} -> ${e.mileage_end} (${(e.mileage_end - e.mileage_start).toFixed(1)} mi)`
         : '';
     lines.push(
       padRight(dateStr, 12) + padRight(fmtTime(e.clock_in), 7) + padRight(fmtTime(e.clock_out), 7) +
-        padRight(hours, 9) + padRight(mileage, 18) + (e.note || '')
+        padRight(hours, 9) + padRight(mileage, 26) + (e.note || '')
     );
   }
   if (!entries.length) lines.push('(none)');
