@@ -180,7 +180,6 @@ function formatBillText(cycleStart, cycleEnd, entries, expenses) {
   if (!entries.length) lines.push('(none)');
   lines.push(rule);
   lines.push(`SUBTOTAL — Hours worked: ${formatHoursMinutes(totalMs)}`);
-  if (totalMileage) lines.push(`SUBTOTAL — Mileage: ${totalMileage.toFixed(1)} mi`);
   lines.push('');
 
   lines.push('MILEAGE');
@@ -216,6 +215,7 @@ function formatBillText(cycleStart, cycleEnd, entries, expenses) {
 
   lines.push('='.repeat(70));
   lines.push(`TOTAL HOURS:    ${formatHoursMinutes(totalMs)}`);
+  lines.push(`TOTAL MILEAGE:  ${totalMileage.toFixed(1)} mi`);
   lines.push(`TOTAL EXPENSES: ${fmtMoney(totalExpense)}`);
   lines.push('='.repeat(70));
 
