@@ -183,6 +183,23 @@ function formatBillText(cycleStart, cycleEnd, entries, expenses) {
   if (totalMileage) lines.push(`SUBTOTAL — Mileage: ${totalMileage.toFixed(1)} mi`);
   lines.push('');
 
+  lines.push('MILEAGE');
+  lines.push(rule);
+  lines.push(padRight('Date', 12) + padRight('Start', 10) + padRight('End', 10) + padRight('Miles', 9) + 'Description');
+  const mileageEntries = entries.filter((e) => e.mileage_start != null && e.mileage_end != null);
+  for (const e of mileageEntries) {
+    const dateStr = e.clock_in.slice(0, 10);
+    const miles = e.mileage_end - e.mileage_start;
+    lines.push(
+      padRight(dateStr, 12) + padRight(e.mileage_start, 10) + padRight(e.mileage_end, 10) +
+        padRight(miles.toFixed(1), 9) + (e.note || '')
+    );
+  }
+  if (!mileageEntries.length) lines.push('(none)');
+  lines.push(rule);
+  lines.push(`SUBTOTAL — Mileage: ${totalMileage.toFixed(1)} mi`);
+  lines.push('');
+
   lines.push('EXPENSES');
   lines.push(rule);
   lines.push(padRight('Date', 12) + padRight('Category', 12) + padRight('Amount', 10) + 'Note');
