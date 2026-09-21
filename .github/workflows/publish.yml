@@ -68,6 +68,10 @@ jobs:
         with:
           context: .
           push: true
+          # Skip the provenance attestation: it adds an unknown/unknown
+          # manifest that sohl-server's containerd-backed `docker compose
+          # pull` fails to fetch ("NotFound: content digest").
+          provenance: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
