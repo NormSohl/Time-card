@@ -57,12 +57,47 @@ function toDateOnly(d) {
   return d.toISOString().slice(0, 10);
 }
 
+// Timestamps are stored as UTC ISO strings, but billing is done in the
+// business's local time: a shift ending at 6pm Pacific is still that
+// day's work even though it's already tomorrow in UTC. TIMECARD_TZ is any
+// IANA zone name.
+const TIMEZONE = process.env.TIMECARD_TZ || 'America/Los_Angeles';
+try {
+  new Intl.DateTimeFormat('en-US', { timeZone: TIMEZONE });
+} catch {
+  console.error(`TIMECARD_TZ "${TIMEZONE}" is not a valid IANA time zone.`);
+  process.exit(1);
+}
+
+const localFormat = new Intl.DateTimeFormat('en-CA', {
+  timeZone: TIMEZONE,
+  year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+});
+
+function localParts(iso) {
+  const parts = {};
+  for (const { type, value } of localFormat.formatToParts(new Date(iso))) parts[type] = value;
+  return parts;
+}
+
+// YYYY-MM-DD of an instant, in TIMEZONE.
+function toLocalDateOnly(iso) {
+  const p = localParts(iso);
+  return `${p.year}-${p.month}-${p.day}`;
+}
+
+// HH:MM of an instant, in TIMEZONE.
+function toLocalTime(iso) {
+  const p = localParts(iso);
+  return `${p.hour}:${p.minute}`;
+}
+
+// Most recent Saturday (today included) as a YYYY-MM-DD in TIMEZONE.
 function mostRecentSaturday(d) {
-  const day = d.getUTCDay(); // 0=Sun..6=Sat
-  const diff = (day - 6 + 7) % 7;
-  const result = new Date(d);
-  result.setUTCDate(result.getUTCDate() - diff);
-  return result;
+  const today = toLocalDateOnly(d);
+  const day = new Date(`${today}T00:00:00Z`).getUTCDay(); // 0=Sun..6=Sat
+  return addDays(today, -((day - 6 + 7) % 7));
 }
 
 function addDays(dateOnly, n) {
@@ -88,10 +123,12 @@ function suggestBillingRange() {
     // early just yields whatever's outstanding so far.)
     return { cycle_start: addDays(lastBilling.cycle_end, 1), cycle_end: addDays(lastBilling.cycle_end, 14) };
   }
-  const suggestedEnd = toDateOnly(mostRecentSaturday(new Date()));
+  const suggestedEnd = mostRecentSaturday(new Date());
   const earliestEntry = db
-    .prepare("SELECT MIN(substr(clock_out, 1, 10)) AS d FROM entries WHERE clock_out IS NOT NULL AND billing_id IS NULL")
-    .get().d;
+    .prepare('SELECT clock_out FROM entries WHERE clock_out IS NOT NULL AND billing_id IS NULL')
+    .all()
+    .map((e) => toLocalDateOnly(e.clock_out))
+    .sort()[0];
   const earliestExpense = db.prepare('SELECT MIN(substr(date, 1, 10)) AS d FROM expenses WHERE billing_id IS NULL').get().d;
   const candidates = [earliestEntry, earliestExpense].filter(Boolean);
   const cycle_start = candidates.length ? candidates.sort()[0] : addDays(suggestedEnd, -13);
@@ -99,14 +136,14 @@ function suggestBillingRange() {
 }
 
 function gatherBillableItems(cycleStart, cycleEnd) {
+  // Filtered in JS rather than SQL because "which day" depends on TIMEZONE.
   const entries = db
-    .prepare(
-      `SELECT * FROM entries
-       WHERE clock_out IS NOT NULL AND billing_id IS NULL
-         AND substr(clock_out, 1, 10) >= ? AND substr(clock_out, 1, 10) <= ?
-       ORDER BY clock_in ASC`
-    )
-    .all(cycleStart, cycleEnd);
+    .prepare('SELECT * FROM entries WHERE clock_out IS NOT NULL AND billing_id IS NULL ORDER BY clock_in ASC')
+    .all()
+    .filter((e) => {
+      const day = toLocalDateOnly(e.clock_out);
+      return day >= cycleStart && day <= cycleEnd;
+    });
   const expenses = db
     .prepare(
       `SELECT * FROM expenses
@@ -143,9 +180,7 @@ function fmtMoney(n) {
   return '$' + n.toFixed(2);
 }
 function fmtTime(iso) {
-  const d = new Date(iso);
-  const pad2 = (n) => String(n).padStart(2, '0');
-  return `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
+  return toLocalTime(iso);
 }
 
 const EXPENSE_LABELS = { toll: 'Toll', parking: 'Parking', bus: 'Bus fare', other: 'Other' };
@@ -156,6 +191,7 @@ function formatBillText(cycleStart, cycleEnd, entries, expenses) {
   const lines = [];
   lines.push('TIME CARD BILLING STATEMENT');
   lines.push(`Cycle: ${cycleStart} to ${cycleEnd}`);
+  lines.push(`Times shown in ${TIMEZONE}`);
   lines.push(`Generated: ${new Date().toISOString()}`);
   lines.push('');
 
@@ -166,7 +202,7 @@ function formatBillText(cycleStart, cycleEnd, entries, expenses) {
       padRight('Mileage', 26) + 'Description'
   );
   for (const e of entries) {
-    const dateStr = e.clock_in.slice(0, 10);
+    const dateStr = toLocalDateOnly(e.clock_in);
     const hours = formatHoursMinutes(new Date(e.clock_out) - new Date(e.clock_in));
     const mileage =
       e.mileage_start != null && e.mileage_end != null
@@ -187,7 +223,7 @@ function formatBillText(cycleStart, cycleEnd, entries, expenses) {
   lines.push(padRight('Date', 12) + padRight('Start', 10) + padRight('End', 10) + padRight('Miles', 9) + 'Description');
   const mileageEntries = entries.filter((e) => e.mileage_start != null && e.mileage_end != null);
   for (const e of mileageEntries) {
-    const dateStr = e.clock_in.slice(0, 10);
+    const dateStr = toLocalDateOnly(e.clock_in);
     const miles = e.mileage_end - e.mileage_start;
     lines.push(
       padRight(dateStr, 12) + padRight(e.mileage_start, 10) + padRight(e.mileage_end, 10) +

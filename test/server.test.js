@@ -253,3 +253,30 @@ test('billing: preview, generate, lock, unbill, and cycle chaining', async () =>
   const historyAfter = await agent.get('/api/billing/history').expect(200);
   assert.equal(historyAfter.body.find((b) => b.id === billingId), undefined);
 });
+
+test('billing statement uses Pacific time for dates, times, and cycle boundaries', async () => {
+  const agent = await loginAgent();
+
+  // 6:30pm-8:00pm PDT on Oct 10 — already Oct 11 in UTC.
+  const entry = await agent
+    .post('/api/entries/raw')
+    .send({ start_time: '2026-10-11T01:30:00Z', end_time: '2026-10-11T03:00:00Z', note: 'tz test shift' })
+    .expect(200);
+
+  const draft = await agent
+    .get('/api/billing/preview')
+    .query({ cycle_start: '2026-10-10', cycle_end: '2026-10-10', format: 'text' })
+    .expect(200);
+  assert.match(draft.text, /America\/Los_Angeles/);
+  assert.match(draft.text, /2026-10-10\s+18:30\s+20:00\s+1h 30m/);
+  assert.doesNotMatch(draft.text, /2026-10-11/);
+
+  // Not in the UTC-dated cycle it would have landed in before.
+  const next = await agent
+    .get('/api/billing/preview')
+    .query({ cycle_start: '2026-10-11', cycle_end: '2026-10-11' })
+    .expect(200);
+  assert.equal(next.body.entries.length, 0);
+
+  await agent.delete(`/api/entries/${entry.body.id}`).expect(200);
+});
